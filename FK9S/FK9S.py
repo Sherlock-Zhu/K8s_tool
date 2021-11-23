@@ -9,10 +9,11 @@ import subprocess
 # ns pod
 
 # define accepted keyboard charactor
-letter_codes = [ord(ch) for ch in 'crqblsWdpSD'] + [258, 259, 10]
-actions = ['configmap', 'restart', 'exit', 'basic', 'log', 'service',
-           'switch', 'deployment', 'pod', 'statefulset',
-           'daemonset'] + ['down', 'up', 'enter']
+letter_codes = [ord(ch) for ch in 'bcCdDehlpPqrsSW'] + [258, 259, 10]
+actions = ['basic', 'configmap', 'crd', 'deployment', 'daemonset', 'secret',
+           'hpa', 'log', 'pod', 'pvc', 'exit', 'restart', 'service',
+           'statefulset', 'switch'
+           ] + ['down', 'up', 'enter']
 actions_dict = dict(zip(letter_codes, actions))
 
 # get terminal info
@@ -60,7 +61,7 @@ def os_run(cmd):
     else:
         return (error_mes
                 + base64.b32encode(result.args.encode('UTF-8')).decode()
-                + '\n' + base64.b32encode(result.stdout).decode())
+                + '\n' + base64.b32encode(result.stdout).decode() + '\n')
 
 
 def cpu_cal(cpu_n):
@@ -98,12 +99,14 @@ def main(stdscr):
             self.content = None
             self.current_row_no = 0
             self.page_state = ['pod', 'deployment', 'statefulset', 'daemonset',
-                               'service']
-            self.page_normal = ['pod_basic', 'container_list', 'log']
+                               'service', 'pvc']
+            self.page_normal = ['pod_basic', 'container_list', 'log',
+                                'configmap', 'secret', 'hpa', 'crd']
             self.page_other = ['ns']
             self.page_level_1 = ['ns']
             self.page_level_2 = ['pod', 'deployment', 'statefulset',
-                                 'daemonset', 'service']
+                                 'daemonset', 'service', 'configmap',
+                                 'secret', 'hpa', 'pvc', 'crd']
             self.page_level_3_1 = ['container_list', 'pod_basic']
             self.page_level_N = ['log']
             self.reset()
@@ -174,8 +177,9 @@ def main(stdscr):
                     else:
                         cast(self.content[i])
             if self.current_page in self.page_state:
-                # secondly check if content longer than screen high
-                content_hight = len(self.content)
+                if len(self.content) == 1:
+                    cast(self.content[0])
+                    return 0
                 cast(format_output(self.content[0]))
                 for i in range(self.current_firstline, self.current_endline):
                     if i == self.current_row_no:
@@ -187,8 +191,6 @@ def main(stdscr):
                     else:
                         cast(format_output(self.content[i]))
             if self.current_page in self.page_normal:
-                # secondly check if content longer than screen high
-                content_hight = len(self.content)
                 cast(self.content[0])
                 for i in range(self.current_firstline, self.current_endline):
                     if i == self.current_row_no:
@@ -372,8 +374,7 @@ def main(stdscr):
             return 'wait'
 
         def switch_state(self):
-            if work_field.current_page in [
-               'log', 'pod', 'deployment', 'statefulset', 'daemonset']:
+            if work_field.current_page in ['log'] + work_field.page_state:
                 # with open('record.log','w+') as f:
                 #     f.write('output\n')
                 #     for i in work_field.content: f.write(i + '\n')
@@ -386,15 +387,25 @@ def main(stdscr):
                 return 'work'
             return 'wait'
 
-        def state_page_level2(self, item, wide_lo):
+        # level2 page without state
+        def normal_page_level2(self, item, wide_lo):
             if work_field.current_page in work_field.page_level_2:
                 work_field.current_page = item
                 cmd = ' '.join([get_cmd('get', item), wide_lo, work_field.ns])
                 output = os_run(cmd)
                 work_field.content = output.split('\n')
                 work_field.content.pop()
-                work_field.content_c = [work_field.content[0], ]
                 work_field.page_init(1, 1)
+                return 'work'
+            return 'wait'
+
+        # level2 page with state
+        def state_page_level2(self, item, wide_lo):
+            def issue_append(i):
+                issue_line.append(i)
+                work_field.content_c.append(work_field.content[i])
+            if self.normal_page_level2(item, wide_lo) == 'work':
+                work_field.content_c = [work_field.content[0], ]
                 # check item status
                 global issue_line
                 issue_line = []
@@ -407,32 +418,29 @@ def main(stdscr):
                                and work_state[0] == work_state[1]):
                                 continue
                             if pod_status[1] != 'Completed':
-                                issue_line.append(i)
-                                work_field.content_c.append(
-                                    work_field.content[i])
+                                issue_append(i)
                     elif item in ['deployment', 'statefulset']:
                         for i in range(1, len(work_field.content)):
                             work_state = \
                                 work_field.content[i].split()[1].split('/')
                             if work_state[0] != work_state[1]:
-                                issue_line.append(i)
-                                work_field.content_c.append(
-                                    work_field.content[i])
+                                issue_append(i)
                     elif item == 'daemonset':
                         for i in range(1, len(work_field.content)):
                             work_state = work_field.content[i].split()
                             if work_state[1] != work_state[3]:
-                                issue_line.append(i)
-                                work_field.content_c.append(
-                                    work_field.content[i])
+                                issue_append(i)
                     elif item == 'service':
                         for i in range(1, len(work_field.content)):
                             work_state = work_field.content[i].split()[3]
                             if work_state == '<pending>':
-                                issue_line.append(i)
-                                work_field.content_c.append(
-                                    work_field.content[i])
-                work_field.cstate = True
+                                issue_append(i)
+                    elif item == 'pvc':
+                        for i in range(1, len(work_field.content)):
+                            work_state = work_field.content[i].split()[1]
+                            if work_state != 'Bound':
+                                issue_append(i)
+                    work_field.cstate = True
                 return 'work'
             return 'wait'
 
@@ -450,6 +458,21 @@ def main(stdscr):
 
         def service(self):
             return self.state_page_level2('service', '-n')
+
+        def configmap(self):
+            return self.normal_page_level2('configmap', '-o wide -n')
+
+        def secret(self):
+            return self.normal_page_level2('secret', '-n')
+
+        def hpa(self):
+            return self.normal_page_level2('hpa', '-n')
+
+        def pvc(self):
+            return self.state_page_level2('pvc', '-n')
+
+        def crd(self):
+            return self.normal_page_level2('crd', '-n')
 
     # define different process state
     def init():
@@ -480,19 +503,24 @@ def main(stdscr):
     # try action dict to void mutiple if in work function
     # define action dictionary, also page print format info
     resp_dict = {
-        'restart': (act_resp.init,),
+        'basic': (act_resp.basic,),
+        'configmap': (act_resp.configmap,),
+        'crd': (act_resp.crd,),
+        'deployment': (act_resp.deploy, 5, 60, 10, 11, 10, 10),
+        'daemonset': (act_resp.daemonset, 8, 60, 8, 8, 7, 11, 10, 30, 8),
         'exit': (act_resp.exit,),
+        'hpa': (act_resp.hpa,),
+        'log': (act_resp.log,),
+        'pod': (act_resp.pod, 7, 60, 7, 10, 10, 5, 18, 38),
+        'pvc': (act_resp.pvc, 7, 50, 8, 50, 10, 10, 14, 8),
+        'restart': (act_resp.init,),
+        'service': (act_resp.service, 5, 50, 13, 16, 16, 53),
+        'secret': (act_resp.secret,),
+        'statefulset': (act_resp.statefulset, 3, 60, 10, 10),
+        'switch': (act_resp.switch_state,),
         'up': (act_resp.up_down,),
         'down': (act_resp.up_down,),
-        'enter': (act_resp.enter,),
-        'basic': (act_resp.basic,),
-        'log': (act_resp.log,),
-        'switch': (act_resp.switch_state,),
-        'deployment': (act_resp.deploy, 5, 60, 10, 11, 10, 10),
-        'pod': (act_resp.pod, 7, 60, 7, 10, 10, 5, 18, 38),
-        'statefulset': (act_resp.statefulset, 3, 60, 10, 10),
-        'daemonset': (act_resp.daemonset, 8, 60, 8, 8, 7, 11, 10, 30, 8),
-        'service': (act_resp.service, 5, 50, 13, 16, 16, 53)
+        'enter': (act_resp.enter,)
     }
 
     while state != 'exit':

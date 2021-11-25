@@ -5,14 +5,13 @@ import os
 import re
 import subprocess
 
-# page record:
-# ns pod
-
 # define accepted keyboard charactor
-letter_codes = [ord(ch) for ch in 'bcCdDehlpPqrsSW'] + [258, 259, 10]
-actions = ['basic', 'configmap', 'crd', 'deployment', 'daemonset', 'secret',
-           'hpa', 'log', 'pod', 'pvc', 'exit', 'restart', 'service',
-           'statefulset', 'switch'
+letter_codes = [ord(ch) for ch in 'bcCdDeEhlnpPqrsSWY'] + [258, 259, 10]
+actions = ['basic', 'configmap', 'crd', 'deployment',
+           'daemonset', 'secret', 'describe',
+           'hpa', 'log', 'node', 'pod',
+           'pvc', 'exit', 'restart', 'service',
+           'statefulset', 'switch', 'yaml'
            ] + ['down', 'up', 'enter']
 actions_dict = dict(zip(letter_codes, actions))
 
@@ -22,10 +21,9 @@ no_c, no_r = os.get_terminal_size()
 # define init content
 welcome_content = ('Hello, welcome to beta0 FK9s tool, please choose a '
                    'namespace and press "Enter" Button')
-head0 = '+' * (no_c - 1) + '\n'
-head = ['version: Beta1 ']
-# head.append("Any suggestion please mail to sherlock.zhu@ericsson.com")
-head.append('◢▆▅▄▃怒╰(〒皿〒)╯怒▃▃▄▅▇◣')
+heads = '|version: Beta0.2' + '-' * (no_c - 72) + 'Any question please mail to sherlock.zhu@ericsson.com|\n'
+heade = [self.current_page, '-' * (no_c - 1 -len(self.current_page))]
+head.append('||')
 head.append('. ')
 head.append('-' * (no_c - 1))
 
@@ -36,6 +34,8 @@ cmd_dict = {
     'des': 'kubectl describe',
     'get': 'kubectl get'
 }
+error_mes = ('Oops! seems some error occurd, please report below '
+             'error code to sherlock.zhu@ericsson.com:')
 
 
 def get_cmd(dict_key, content=None):
@@ -54,14 +54,12 @@ def get_user_action(keyboard):
 def os_run(cmd):
     result = subprocess.run(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, shell=True)
-    error_mes = ('Oops! seems some error occurd, please report below '
-                 'error code to sherlock.zhu@ericsson.com: \n')
     if result.returncode == 0:
-        return result.stdout.decode()
+        return result.stdout.decode(), 0
     else:
-        return (error_mes
+        return (error_mes + '\n'
                 + base64.b32encode(result.args.encode('UTF-8')).decode()
-                + '\n' + base64.b32encode(result.stdout).decode() + '\n')
+                + '\n' + base64.b32encode(result.stdout).decode() + '\n'), 1
 
 
 def cpu_cal(cpu_n):
@@ -99,15 +97,18 @@ def main(stdscr):
             self.content = None
             self.current_row_no = 0
             self.page_state = ['pod', 'deployment', 'statefulset', 'daemonset',
-                               'service', 'pvc']
-            self.page_normal = ['pod_basic', 'container_list', 'log',
-                                'configmap', 'secret', 'hpa', 'crd']
+                               'service', 'pvc', 'node']
+            self.page_normal = ['pod_basic', 'container_list', 'log', 'error',
+                                'configmap', 'secret', 'hpa', 'crd', 'crd_2',
+                                'yaml', 'describe']
             self.page_other = ['ns']
             self.page_level_1 = ['ns']
-            self.page_level_2 = ['pod', 'deployment', 'statefulset',
+            self.page_level_2 = ['pod', 'deployment', 'statefulset', 'node',
                                  'daemonset', 'service', 'configmap',
-                                 'secret', 'hpa', 'pvc', 'crd']
-            self.page_level_3_1 = ['container_list', 'pod_basic']
+                                 'secret', 'hpa', 'pvc', 'crd', 'crd_2']
+            self.page_level_3 = ['container_list', 'pod_basic', 'error',
+                                 'yaml', 'describe']
+            self.page_2_level_2 = self.page_level_3 + self.page_level_2
             self.page_level_N = ['log']
             self.reset()
 
@@ -115,7 +116,7 @@ def main(stdscr):
         def reset(self):
             self.current_page = 'ns'
             self.current_row_no = 1
-            self.content = os_run(get_cmd('get', 'ns')).split('\n')
+            self.content = os_run(get_cmd('get', 'ns'))[0].split('\n')
             self.content.pop()
 
         # new page parameter initialization
@@ -176,7 +177,7 @@ def main(stdscr):
                         cast(self.content[i], curses.color_pair(1))
                     else:
                         cast(self.content[i])
-            if self.current_page in self.page_state:
+            elif self.current_page in self.page_state:
                 if len(self.content) == 1:
                     cast(self.content[0])
                     return 0
@@ -190,7 +191,7 @@ def main(stdscr):
                              curses.color_pair(2))
                     else:
                         cast(format_output(self.content[i]))
-            if self.current_page in self.page_normal:
+            elif self.current_page in self.page_normal:
                 cast(self.content[0])
                 for i in range(self.current_firstline, self.current_endline):
                     if i == self.current_row_no:
@@ -229,7 +230,7 @@ def main(stdscr):
                     current_con = '--all-containers'
                 cmd = ' '.join([get_cmd('log'), '-n', work_field.ns,
                                work_field.current_pod, current_con])
-                output = os_run(cmd).split('\n')
+                output = os_run(cmd)[0].split('\n')
                 output_e = list(filter(lambda x: 'warn' in x.lower()
                                 or 'err' in x.lower(), output))
                 # here need to deal with long content
@@ -249,6 +250,14 @@ def main(stdscr):
                     work_field.content_c.append(i)
                 work_field.page_init(1, 1)
                 return 'work'
+            if work_field.current_page == 'crd':
+                work_field.current_page = 'crd_2'
+                crd = work_field.content[work_field.current_row_no].split()[0]
+                cmd = ' '.join([get_cmd('get', crd), '-n', work_field.ns])
+                work_field.content = os_run(cmd)[0].split('\n')
+                work_field.content.pop()
+                work_field.page_init(1, 1)
+                return 'work'
             return 'wait'
 
         def basic(self):
@@ -260,7 +269,7 @@ def main(stdscr):
                 # get pod info
                 cmd_pod = ' '.join([get_cmd('get', 'pod'), '-o json -n',
                                    work_field.ns, work_field.current_pod])
-                pod_info = json.loads(os_run(cmd_pod))
+                pod_info = json.loads(os_run(cmd_pod)[0])
                 # some pod don't have product-name, need pre-check
                 if ("ericsson.com/product-name" in
                    pod_info["metadata"]["annotations"]):
@@ -285,15 +294,15 @@ def main(stdscr):
                 # resource requested by described in node
                 cmd_res_all = ' '.join([get_cmd('des', 'node'), location,
                                        '| grep', work_field.current_pod])
-                res_use = os_run(cmd_res_use).split()
-                res_all = os_run(cmd_res_all).split()
+                res_use = os_run(cmd_res_use)[0].split()
+                res_all = os_run(cmd_res_all)[0].split()
                 cpu_usa = '{:.2%}'.format(cpu_cal(res_use[4]) /
                                           cpu_cal(res_all[4]))
                 mem_usa = '{:.2%}'.format(mem_cal(res_use[5]) /
                                           mem_cal(res_all[8]))
                 cmd_events = ' '.join([get_cmd('event'), '-n',
                                       work_field.ns, '-o json'])
-                events = json.loads(os_run(cmd_events))['items']
+                events = json.loads(os_run(cmd_events)[0])['items']
                 work_field.content = ['Pod Details']
                 work_field.content.append(
                     '{:<14s}{}'.format('Name: ', work_field.current_pod))
@@ -359,7 +368,7 @@ def main(stdscr):
                     work_field.content[work_field.current_row_no].split()[0]
                 cmd_pod = ' '.join([get_cmd('get', 'pod'), '-o json -n',
                                    work_field.ns, work_field.current_pod])
-                pod_info = json.loads(os_run(cmd_pod))
+                pod_info = json.loads(os_run(cmd_pod)[0])
                 con = [i['name'] for i in pod_info["spec"]["containers"]]
                 if "initContainers" in pod_info["spec"].keys():
                     con += [i['name'] for i
@@ -375,11 +384,6 @@ def main(stdscr):
 
         def switch_state(self):
             if work_field.current_page in ['log'] + work_field.page_state:
-                # with open('record.log','w+') as f:
-                #     f.write('output\n')
-                #     for i in work_field.content: f.write(i + '\n')
-                #     f.write('output_e\n')
-                #     for i in work_field.content_c: f.write(i + '\n')
                 work_field.cstate = not work_field.cstate
                 work_field.content, work_field.content_c = (
                     work_field.content_c, work_field.content)
@@ -389,60 +393,64 @@ def main(stdscr):
 
         # level2 page without state
         def normal_page_level2(self, item, wide_lo):
-            if work_field.current_page in work_field.page_level_2:
+            if work_field.current_page in work_field.page_2_level_2:
                 work_field.current_page = item
                 cmd = ' '.join([get_cmd('get', item), wide_lo, work_field.ns])
                 output = os_run(cmd)
-                work_field.content = output.split('\n')
+                work_field.content = output[0].split('\n')
                 work_field.content.pop()
                 work_field.page_init(1, 1)
-                return 'work'
-            return 'wait'
+                return output[1]
+            return 2
 
         # level2 page with state
         def state_page_level2(self, item, wide_lo):
             def issue_append(i):
                 issue_line.append(i)
                 work_field.content_c.append(work_field.content[i])
-            if self.normal_page_level2(item, wide_lo) == 'work':
-                work_field.content_c = [work_field.content[0], ]
-                # check item status
-                global issue_line
-                issue_line = []
-                if len(work_field.content) > 2:
-                    if item == 'pod':
-                        for i in range(1, len(work_field.content)):
-                            pod_status = work_field.content[i].split()[1:3]
-                            work_state = pod_status[0].split('/')
-                            if (pod_status[1] == 'Running'
-                               and work_state[0] == work_state[1]):
-                                continue
-                            if pod_status[1] != 'Completed':
-                                issue_append(i)
-                    elif item in ['deployment', 'statefulset']:
-                        for i in range(1, len(work_field.content)):
-                            work_state = \
-                                work_field.content[i].split()[1].split('/')
-                            if work_state[0] != work_state[1]:
-                                issue_append(i)
-                    elif item == 'daemonset':
-                        for i in range(1, len(work_field.content)):
-                            work_state = work_field.content[i].split()
-                            if work_state[1] != work_state[3]:
-                                issue_append(i)
-                    elif item == 'service':
-                        for i in range(1, len(work_field.content)):
-                            work_state = work_field.content[i].split()[3]
-                            if work_state == '<pending>':
-                                issue_append(i)
-                    elif item == 'pvc':
-                        for i in range(1, len(work_field.content)):
-                            work_state = work_field.content[i].split()[1]
-                            if work_state != 'Bound':
-                                issue_append(i)
-                    work_field.cstate = True
+            run_result = self.normal_page_level2(item, wide_lo)
+            if run_result == 2:
+                return 'wait'
+            if run_result == 1:
+                work_field.current_page = 'error'
                 return 'work'
-            return 'wait'
+            work_field.content_c = [work_field.content[0], ]
+            # check item status
+            global issue_line
+            issue_line = []
+            if len(work_field.content) > 2:
+                if item == 'pod':
+                    for i in range(1, len(work_field.content)):
+                        pod_status = work_field.content[i].split()[1:3]
+                        work_state = pod_status[0].split('/')
+                        if (pod_status[1] == 'Running'
+                           and work_state[0] == work_state[1]):
+                            continue
+                        if pod_status[1] != 'Completed':
+                            issue_append(i)
+                elif item in ['deployment', 'statefulset']:
+                    for i in range(1, len(work_field.content)):
+                        work_state = \
+                            work_field.content[i].split()[1].split('/')
+                        if work_state[0] != work_state[1]:
+                            issue_append(i)
+                elif item == 'daemonset':
+                    for i in range(1, len(work_field.content)):
+                        work_state = work_field.content[i].split()
+                        if work_state[1] != work_state[3]:
+                            issue_append(i)
+                elif item == 'service':
+                    for i in range(1, len(work_field.content)):
+                        work_state = work_field.content[i].split()[3]
+                        if work_state == '<pending>':
+                            issue_append(i)
+                elif item in ['pvc', 'node']:
+                    for i in range(1, len(work_field.content)):
+                        work_state = work_field.content[i].split()[1]
+                        if work_state not in ['Bound', 'Ready']:
+                            issue_append(i)
+                work_field.cstate = True
+            return 'work'
 
         def deploy(self):
             return self.state_page_level2('deployment', '-n')
@@ -473,6 +481,43 @@ def main(stdscr):
 
         def crd(self):
             return self.normal_page_level2('crd', '-n')
+
+        def node(self):
+            return self.state_page_level2('node', '-o wide -n')
+
+        def long_text_handle(self, cmd):
+            output = os_run(cmd)[0].split('\n')
+            work_field.content = ['--']
+            c_width = no_c - 1
+            for i in output:
+                while len(i) > c_width:
+                    content, i = i[:c_width], i[c_width:]
+                    work_field.content.append(content)
+                work_field.content.append(i)
+            work_field.page_init(1, 1)
+            return 'work'
+
+        def describe(self):
+            if work_field.current_page in work_field.page_level_2:
+                item = work_field.current_page
+                work_field.current_page = 'describe'
+                current_con = (work_field.content
+                               [work_field.current_row_no].split()[0])
+                cmd = ' '.join([get_cmd('des', item), '-n', work_field.ns,
+                               current_con])
+                return self.long_text_handle(cmd)
+            return 'wait'
+
+        def yaml(self):
+            if work_field.current_page in work_field.page_level_2:
+                item = work_field.current_page
+                work_field.current_page = 'yaml'
+                current_con = (work_field.content
+                               [work_field.current_row_no].split()[0])
+                cmd = ' '.join([get_cmd('get', item), '-o yaml -n',
+                               work_field.ns, current_con])
+                return self.long_text_handle(cmd)
+            return 'wait'
 
     # define different process state
     def init():
@@ -508,9 +553,11 @@ def main(stdscr):
         'crd': (act_resp.crd,),
         'deployment': (act_resp.deploy, 5, 60, 10, 11, 10, 10),
         'daemonset': (act_resp.daemonset, 8, 60, 8, 8, 7, 11, 10, 30, 8),
+        'describe': (act_resp.describe,),
         'exit': (act_resp.exit,),
         'hpa': (act_resp.hpa,),
         'log': (act_resp.log,),
+        'node': (act_resp.node, 6, 30, 10, 25, 10, 20, 20),
         'pod': (act_resp.pod, 7, 60, 7, 10, 10, 5, 18, 38),
         'pvc': (act_resp.pvc, 7, 50, 8, 50, 10, 10, 14, 8),
         'restart': (act_resp.init,),
@@ -518,6 +565,7 @@ def main(stdscr):
         'secret': (act_resp.secret,),
         'statefulset': (act_resp.statefulset, 3, 60, 10, 10),
         'switch': (act_resp.switch_state,),
+        'yaml': (act_resp.yaml,),
         'up': (act_resp.up_down,),
         'down': (act_resp.up_down,),
         'enter': (act_resp.enter,)
@@ -527,4 +575,9 @@ def main(stdscr):
         state = state_actions[state]()
 
 
+# with open('record.log','w+') as f:
+#     f.write('output\n')
+#     for i in work_field.content: f.write(i + '\n')
+#     f.write('output_e\n')
+#     for i in output: f.write(i + '\n')
 curses.wrapper(main)

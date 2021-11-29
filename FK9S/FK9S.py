@@ -18,14 +18,31 @@ actions_dict = dict(zip(letter_codes, actions))
 # get terminal info
 no_c, no_r = os.get_terminal_size()
 
-# define init content
+# define head content
 welcome_content = ('Hello, welcome to beta0 FK9s tool, please choose a '
                    'namespace and press "Enter" Button')
-heads = '|version: Beta0.2' + '-' * (no_c - 72) + 'Any question please mail to sherlock.zhu@ericsson.com|\n'
-heade = [self.current_page, '-' * (no_c - 1 -len(self.current_page))]
-head.append('||')
-head.append('. ')
-head.append('-' * (no_c - 1))
+heads = ('|version: Beta0.2' + '-' * (no_c - 72) +
+         'Any question please mail to sherlock.zhu@ericsson.com|\n')
+head1 = ('|' + welcome_content + ' ' * (no_c - 88) + '|\n' + '| (●\'◡\'●)ﾉ♥' +
+         ' ' * (no_c - 13) + '|\n' + '|' + ' ' * (no_c - 3) + '|')
+head23 = ('|<c>  configmap      <C>  crd            <d>  deployment     '
+          '<D>  daemonset      <e>  secret         <h>  hpa            ' +
+          ' ' * (no_c - 123) + '|\n' +
+          '|<n>  node           <p>  pod            <P>  pvc            '
+          '<s>  service        <S>  statefulset    ' +
+          ' ' * (no_c - 103) + '|')
+head_p = ('|<q>  quit           <r>  reset          <b>  basic          '
+          '<l>  log            <E>  description    <Y>  Yaml           '
+          '<W>  switch error   ' + ' ' * (no_c - 143) + '|')
+head_s2 = ('|<q>  quit           <r>  reset          <E>  description    '
+           '<Y>  Yaml           <W>  switch error   ' +
+           ' ' * (no_c - 103) + '|')
+head_n2 = ('|<q>  quit           <r>  reset          <E>  description    '
+           '<Y>  Yaml           ' + ' ' * (no_c - 103) + '|')
+head_l = ('|<q>  quit           <r>  reset          <W>  switch error   ' +
+          ' ' * (no_c - 63) + '|')
+head_n3 = ('|<q>  quit           <r>  reset          ' +
+           ' ' * (no_c - 43) + '|')
 
 # define cmd dict
 cmd_dict = {
@@ -83,9 +100,9 @@ def mem_cal(mem_n):
 def main(stdscr):
     # define colour solution
     # 0:black, 1:red, 2:green, 3:yellow, 4:blue, 5:magenta, 6:cyan, 7:white
+    curses.use_default_colors()
     curses.init_pair(1, 2, 7)
     curses.init_pair(2, 6, 1)
-    curses.use_default_colors()
 
     # define print function
     class workField:
@@ -100,16 +117,14 @@ def main(stdscr):
                                'service', 'pvc', 'node']
             self.page_normal = ['pod_basic', 'container_list', 'log', 'error',
                                 'configmap', 'secret', 'hpa', 'crd', 'crd_2',
-                                'yaml', 'describe']
-            self.page_other = ['ns']
+                                'yaml', 'describe', 'ns']
             self.page_level_1 = ['ns']
             self.page_level_2 = ['pod', 'deployment', 'statefulset', 'node',
                                  'daemonset', 'service', 'configmap',
                                  'secret', 'hpa', 'pvc', 'crd', 'crd_2']
             self.page_level_3 = ['container_list', 'pod_basic', 'error',
-                                 'yaml', 'describe']
+                                 'yaml', 'describe', 'log']
             self.page_2_level_2 = self.page_level_3 + self.page_level_2
-            self.page_level_N = ['log']
             self.reset()
 
         # initialization
@@ -156,6 +171,15 @@ def main(stdscr):
             def cast(string, color_pair=curses.color_pair(0)):
                 screen.addstr(string + '\n', color_pair)
 
+            def draw_head(*head):
+                # reset cursor location
+                screen.addstr(0, 0, heads)
+                for i in head:
+                    cast(i)
+                screen.addstr('|')
+                screen.addstr(heade[0], curses.color_pair(1))
+                screen.addstr(heade[1] + '|\n')
+
             def format_output(content):
                 format_str = ''
                 for i in resp_dict[self.current_page][2:]:
@@ -164,20 +188,22 @@ def main(stdscr):
                                          filter(None, content.split('  '))]
                                          [:resp_dict[self.current_page][1]])
 
+            heade = [self.current_page,
+                     '-' * (no_c - 3 - len(self.current_page))]
             screen.erase()
-            # reset cursor location
-            screen.addstr(0, 0, head0)
-            for i in head:
-                cast(i)
             # firstly check display page then decide what to do
-            if self.current_page in self.page_other:
-                cast(welcome_content)
+            if self.current_page in self.page_level_1:
+                draw_head(head1)
                 for i in range(len(self.content)):
                     if i == self.current_row_no:
                         cast(self.content[i], curses.color_pair(1))
                     else:
                         cast(self.content[i])
             elif self.current_page in self.page_state:
+                if self.current_page == 'pod':
+                    draw_head(head23, head_p)
+                else:
+                    draw_head(head23, head_s2)
                 if len(self.content) == 1:
                     cast(self.content[0])
                     return 0
@@ -192,6 +218,12 @@ def main(stdscr):
                     else:
                         cast(format_output(self.content[i]))
             elif self.current_page in self.page_normal:
+                if self.current_page in self.page_level_2:
+                    draw_head(head23, head_n2)
+                elif self.current_page == 'log':
+                    draw_head(head23, head_l)
+                else:
+                    draw_head(head23, head_n3)
                 cast(self.content[0])
                 for i in range(self.current_firstline, self.current_endline):
                     if i == self.current_row_no:
@@ -202,7 +234,7 @@ def main(stdscr):
     # define action function
     class ActResp:
         def __init__(self):
-            self._ = None
+            self.command_r = 0
 
         def init(self):
             return 'init'
@@ -294,13 +326,21 @@ def main(stdscr):
                 # resource requested by described in node
                 cmd_res_all = ' '.join([get_cmd('des', 'node'), location,
                                        '| grep', work_field.current_pod])
-                res_use = os_run(cmd_res_use)[0].split()
-                res_all = os_run(cmd_res_all)[0].split()
-                cpu_usa = '{:.2%}'.format(cpu_cal(res_use[4]) /
-                                          cpu_cal(res_all[4]))
-                mem_usa = '{:.2%}'.format(mem_cal(res_use[5]) /
-                                          mem_cal(res_all[8]))
-                cmd_events = ' '.join([get_cmd('event'), '-n',
+                res_use_t, res_use_r = os_run(cmd_res_use)
+                res_all_t, res_all_r = os_run(cmd_res_all)
+                cpu_usa = mem_usa = 'n/a'
+                if res_use_r == 1 or res_all_r == 1:
+                    res_use = res_all = ('n/a ' * 9).split()
+                else:
+                    res_use = res_use_t.split()
+                    res_all = res_all_t.split()
+                    if cpu_cal(res_all[4]) != 0:
+                        cpu_usa = '{:.2%}'.format(cpu_cal(res_use[4]) /
+                                                  cpu_cal(res_all[4]))
+                    if mem_cal(res_all[8]) != 0:
+                        mem_usa = '{:.2%}'.format(mem_cal(res_use[5]) /
+                                                  mem_cal(res_all[8]))
+                cmd_events = ' '.join([get_cmd('get', 'event'), '-n',
                                       work_field.ns, '-o json'])
                 events = json.loads(os_run(cmd_events)[0])['items']
                 work_field.content = ['Pod Details']
@@ -396,12 +436,12 @@ def main(stdscr):
             if work_field.current_page in work_field.page_2_level_2:
                 work_field.current_page = item
                 cmd = ' '.join([get_cmd('get', item), wide_lo, work_field.ns])
-                output = os_run(cmd)
-                work_field.content = output[0].split('\n')
+                output, self.command_r = os_run(cmd)
+                work_field.content = output.split('\n')
                 work_field.content.pop()
                 work_field.page_init(1, 1)
-                return output[1]
-            return 2
+                return 'work'
+            return 'wait'
 
         # level2 page with state
         def state_page_level2(self, item, wide_lo):
@@ -409,9 +449,9 @@ def main(stdscr):
                 issue_line.append(i)
                 work_field.content_c.append(work_field.content[i])
             run_result = self.normal_page_level2(item, wide_lo)
-            if run_result == 2:
+            if run_result == 'wait':
                 return 'wait'
-            if run_result == 1:
+            if self.command_r == 1:
                 work_field.current_page = 'error'
                 return 'work'
             work_field.content_c = [work_field.content[0], ]

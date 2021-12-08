@@ -6,14 +6,33 @@ import re
 import subprocess
 
 # define accepted keyboard charactor
-letter_codes = [ord(ch) for ch in 'bcCdDeEhlnpPqrsSWY'] + [258, 259, 10]
-actions = ['basic', 'configmap', 'crd', 'deployment',
-           'daemonset', 'secret', 'describe',
-           'hpa', 'log', 'node', 'pod',
-           'pvc', 'exit', 'restart', 'service',
-           'statefulset', 'switch', 'yaml'
-           ] + ['down', 'up', 'enter']
+func_key = [ord(ch) for ch in 'Fq'] + [258, 259, 10, -1]
+page_key = [ord(ch) for ch in 'bcCdDeEhlnpPrsSWY']
+letter_codes = page_key + func_key
+actions = (['basic', 'configmap', 'crd', 'deployment',
+            'daemonset', 'secret', 'describe',
+            'hpa', 'log', 'node', 'pod',
+            'pvc', 'restart', 'service',
+            'statefulset', 'switch', 'yaml'] +
+           ['flush', 'exit'] +
+           ['down', 'up', 'enter', 'repeat'])
 actions_dict = dict(zip(letter_codes, actions))
+actions_dict_r = dict(zip(actions, letter_codes))
+char = [114, False]
+
+# define page
+page_state = ['pod', 'deployment', 'statefulset', 'daemonset',
+              'service', 'pvc', 'node', 'switch']
+page_normal = ['pod_basic', 'container_list', 'log', 'error',
+               'configmap', 'secret', 'hpa', 'crd', 'crd_2',
+               'yaml', 'describe', 'ns']
+page_level_1 = ['ns']
+page_level_2 = ['pod', 'deployment', 'statefulset', 'node',
+                'daemonset', 'service', 'configmap',
+                'secret', 'hpa', 'pvc', 'crd', 'crd_2']
+page_level_3 = ['container_list', 'pod_basic', 'error',
+                'yaml', 'describe', 'log']
+page_2_level_2 = page_level_3 + page_level_2
 
 # get terminal info
 no_c, no_r = os.get_terminal_size()
@@ -29,17 +48,17 @@ head23 = ('|<c>  configmap      <C>  crd            <d>  deployment     '
           '<D>  daemonset      <e>  secret         <h>  hpa            ' +
           ' ' * (no_c - 123) + '|\n' +
           '|<n>  node           <p>  pod            <P>  pvc            '
-          '<s>  service        <S>  statefulset    ' +
-          ' ' * (no_c - 103) + '|')
-head_p = ('|<q>  quit           <r>  reset          <b>  basic          '
-          '<l>  log            <E>  description    <Y>  Yaml           '
-          '<W>  switch error   ' + ' ' * (no_c - 143) + '|')
-head_s2 = ('|<q>  quit           <r>  reset          <E>  description    '
-           '<Y>  Yaml           <W>  switch error   ' +
-           ' ' * (no_c - 103) + '|')
+          '<s>  service        <S>  statefulset    <q>  quit           ' +
+          ' ' * (no_c - 123) + '|')
+head_p = ('|<r>  reset          <b>  basic          <l>  log            '
+          '<E>  description    <Y>  Yaml           <W>  error info     '
+          '<F>  auto refresh   ' + ' ' * (no_c - 143) + '|')
+head_s2 = ('|<r>  reset          <E>  description    '
+           '<Y>  Yaml           <W>  error info     <F>  auto refresh   ' +
+           ' ' * (no_c - 83) + '|')
 head_n2 = ('|<q>  quit           <r>  reset          <E>  description    '
            '<Y>  Yaml           ' + ' ' * (no_c - 103) + '|')
-head_l = ('|<q>  quit           <r>  reset          <W>  switch error   ' +
+head_l = ('|<q>  quit           <r>  reset          <W>  error info     ' +
           ' ' * (no_c - 63) + '|')
 head_n3 = ('|<q>  quit           <r>  reset          ' +
            ' ' * (no_c - 43) + '|')
@@ -60,11 +79,22 @@ def get_cmd(dict_key, content=None):
            + content if content else cmd_dict[dict_key]
 
 
-def get_user_action(keyboard):
-    char = 'N'
-    while char not in actions_dict:
-        char = keyboard.getch()
-    return actions_dict[char]
+def get_user_action(stdscr):
+    act = '-'
+    while act not in actions_dict:
+        act = stdscr.getch()
+        if ((act == -1 and (char[1] is False)) or
+           (act == 70 and (actions_dict[char[0]] not in page_state))):
+            act = '-'
+    if act in page_key:
+        char[1] = False
+        char[0] = act
+    elif act == 70:
+        char[1] = not char[1]
+        act = char[0]
+    elif act == -1:
+        act = char[0]
+    return actions_dict[act]
 
 
 # run command
@@ -103,6 +133,8 @@ def main(stdscr):
     curses.use_default_colors()
     curses.init_pair(1, 2, 7)
     curses.init_pair(2, 6, 1)
+    # initial flush interval to 2 seconds
+    stdscr.timeout(2000)
 
     # define print function
     class workField:
@@ -113,18 +145,6 @@ def main(stdscr):
             self.current_endline = 0
             self.content = None
             self.current_row_no = 0
-            self.page_state = ['pod', 'deployment', 'statefulset', 'daemonset',
-                               'service', 'pvc', 'node']
-            self.page_normal = ['pod_basic', 'container_list', 'log', 'error',
-                                'configmap', 'secret', 'hpa', 'crd', 'crd_2',
-                                'yaml', 'describe', 'ns']
-            self.page_level_1 = ['ns']
-            self.page_level_2 = ['pod', 'deployment', 'statefulset', 'node',
-                                 'daemonset', 'service', 'configmap',
-                                 'secret', 'hpa', 'pvc', 'crd', 'crd_2']
-            self.page_level_3 = ['container_list', 'pod_basic', 'error',
-                                 'yaml', 'describe', 'log']
-            self.page_2_level_2 = self.page_level_3 + self.page_level_2
             self.reset()
 
         # initialization
@@ -192,14 +212,14 @@ def main(stdscr):
                      '-' * (no_c - 3 - len(self.current_page))]
             screen.erase()
             # firstly check display page then decide what to do
-            if self.current_page in self.page_level_1:
+            if self.current_page in page_level_1:
                 draw_head(head1)
                 for i in range(len(self.content)):
                     if i == self.current_row_no:
                         cast(self.content[i], curses.color_pair(1))
                     else:
                         cast(self.content[i])
-            elif self.current_page in self.page_state:
+            elif self.current_page in page_state:
                 if self.current_page == 'pod':
                     draw_head(head23, head_p)
                 else:
@@ -217,8 +237,8 @@ def main(stdscr):
                              curses.color_pair(2))
                     else:
                         cast(format_output(self.content[i]))
-            elif self.current_page in self.page_normal:
-                if self.current_page in self.page_level_2:
+            elif self.current_page in page_normal:
+                if self.current_page in page_level_2:
                     draw_head(head23, head_n2)
                 elif self.current_page == 'log':
                     draw_head(head23, head_l)
@@ -253,6 +273,7 @@ def main(stdscr):
                 work_field.ns = (work_field.content
                                  [work_field.current_row_no].split()[0])
                 work_field.current_page = 'pod'
+                char[0] = 112
                 return self.pod()
             if work_field.current_page == 'container_list':
                 work_field.current_page = 'log'
@@ -303,12 +324,18 @@ def main(stdscr):
                                    work_field.ns, work_field.current_pod])
                 pod_info = json.loads(os_run(cmd_pod)[0])
                 # some pod don't have product-name, need pre-check
-                if ("ericsson.com/product-name" in
-                   pod_info["metadata"]["annotations"]):
+                if ('annotations' in pod_info["metadata"].keys() and
+                    ("ericsson.com/product-name" in
+                     pod_info["metadata"]["annotations"])):
                     pname = (pod_info["metadata"]["annotations"]
                              ["ericsson.com/product-name"])
                 else:
                     pname = 'None'
+                # pod configmap
+                cm_list = []
+                for i in pod_info['spec']['volumes']:
+                    if 'configMap' in i.keys():
+                        cm_list.append(i['configMap']['name'])
                 # pod located worker
                 location = pod_info["spec"]["nodeName"]
                 # owner
@@ -357,6 +384,14 @@ def main(stdscr):
                     '{:<14s}{}'.format('Containers: ', con.pop()))
                 for i in con:
                     work_field.content.append(' ' * 14 + i)
+                if len(cm_list) == 0:
+                    work_field.content.append(
+                        '{:<14s}{}'.format('ConfigMaps: ', 'None'))
+                else:
+                    work_field.content.append(
+                        '{:<14s}{}'.format('ConfigMaps: ', cm_list.pop()))
+                    for j in cm_list:
+                        work_field.content.append(' ' * 14 + j)
                 work_field.content.append('--')
                 work_field.content.append(
                     '              {:<15s}{:<15s}{:<15s}'.format(
@@ -423,17 +458,18 @@ def main(stdscr):
             return 'wait'
 
         def switch_state(self):
-            if work_field.current_page in ['log'] + work_field.page_state:
-                work_field.cstate = not work_field.cstate
-                work_field.content, work_field.content_c = (
-                    work_field.content_c, work_field.content)
+            if work_field.current_page in ['log'] + page_state:
+                resp_dict[work_field.current_page][0]()
+                char[1] = actions_dict_r[work_field.current_page]
+                work_field.cstate = False
+                work_field.content = work_field.content_c
                 work_field.page_init(1, 1)
                 return 'work'
             return 'wait'
 
         # level2 page without state
         def normal_page_level2(self, item, wide_lo):
-            if work_field.current_page in work_field.page_2_level_2:
+            if work_field.current_page in page_2_level_2:
                 work_field.current_page = item
                 cmd = ' '.join([get_cmd('get', item), wide_lo, work_field.ns])
                 output, self.command_r = os_run(cmd)
@@ -538,7 +574,7 @@ def main(stdscr):
             return 'work'
 
         def describe(self):
-            if work_field.current_page in work_field.page_level_2:
+            if work_field.current_page in page_level_2:
                 item = work_field.current_page
                 work_field.current_page = 'describe'
                 current_con = (work_field.content
@@ -549,7 +585,7 @@ def main(stdscr):
             return 'wait'
 
         def yaml(self):
-            if work_field.current_page in work_field.page_level_2:
+            if work_field.current_page in page_level_2:
                 item = work_field.current_page
                 work_field.current_page = 'yaml'
                 current_con = (work_field.content
